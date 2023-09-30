@@ -1,0 +1,57 @@
+#cloud-config
+# Adds the users to the system
+
+fqdn: ${hostname}
+write_files:
+  - content: |
+      #!/bin/bash
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update && \
+      apt-get -o Dpkg::Options::="--force-confold" upgrade -q -y --allow-remove-essential --allow-downgrades && \
+      apt-get -o Dpkg::Options::="--force-confold" dist-upgrade -q -y --allow-remove-essential --allow-downgrades && \
+      apt autoremove -y
+      sudo reboot
+    path: /root/update.sh
+    permissions: '0700'
+
+  - content: |
+      0 5 * * 1 root /root/updates.sh >/dev/null 2>&1
+    path: /etc/cron.d/updates
+    permissions: '0644'
+    
+users:
+  - default
+ %{ for user_key, user_value in users ~}
+ - name: ${user_key}
+    lock_passwd: true
+    shell: /bin/bash
+    ssh_authorized_keys:
+    - ${user_value}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+ %{ endfor ~}
+
+# These packaages are just placeholders
+packages:
+  - apache2
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg-agent
+  - p7zip-full
+  - screen
+  - software-properties-common
+  - unattended-upgrades
+  - wget
+
+runcmd:
+  - hostnamectl set-hostname ${hostname}
+  - sed -i 's/127.0.0.1 localhost/127.0.0.1 localhost ${hostname}/g' /etc/hosts
+
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+power_state:
+  mode: reboot
+  delay: 1
+  message: Rebooting after installation
