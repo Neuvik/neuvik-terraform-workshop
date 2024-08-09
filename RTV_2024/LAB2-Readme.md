@@ -405,3 +405,11 @@ Insert the following text:
     ```
 
 Rerun the terraform apply.
+
+**STEP X.** Important
+
+Before moving on run the following command:
+
+  ```
+  terraform destroy -auto-approve
+  ```

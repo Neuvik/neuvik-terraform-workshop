@@ -20,367 +20,464 @@ Let's start like we did before but now we are going to have a VPC module for net
     cd ../Lab3
     ```
 
-    ```
-    nano vpc.tf
-    ```
-
 Now, let's try and unwind what is needed for a module we have to look at what the module expects. This can be a bit difficult if we have not defined the variables needed for our module to build. Now let's start with the first question. WHY? Why are we doing a module? Well let's consider the following scenario:
 
-1. You want to really produce a configuration that is not tied to a single region
+1. You want to produce a configuration that is not tied to a single region
 2. You do not want to write the same code over and over again
 3. You want the same results, however.
 
-To do this, you will need
+To do this, you will need to best understand the way the module is structured. In many cases, modules are documented but in our case, it is not. Do you give up? No. Let's start with the VPC Module. This one is located here:
 
     ```
-    # Pulls in the data of availability zones in the given datacenter.
-    data "aws_availability_zones" "available" {
-    }
-
-    # Remember to use the Subnet from the previous exercise.
-    resource "aws_subnet" "main" {
-    vpc_id                  = aws_vpc.main.id
-    cidr_block              = "10.0.1.0/24"
-    availability_zone       = data.aws_availability_zones.available.names[0]
-    map_public_ip_on_launch = true
-    }
+    cd ./modules/networking/
     ```
 
-There are a few things in here that we need to discuss. The first one is this line:
-
-    ```
-    vpc_id            = aws_vpc.main.id
-    ```
-
-This `vpc_id` is `aws_vpc.main.id`. This is what we discussed previously. This will insert the VPC ID from the previous resource. 
-
-The next line is:
-
-    ```
-    availability_zone = data.aws_availability_zones.available.names[0]
-    ```
-
-This is a new learning module for you, the first part of this is the `data` element which inserts an already created item. The data element in this case comes from:
-
-Now let's continue pasting items in.
-
-    ```
-    # Create an Internet Gateway, and attach it to the VPC.
-    resource "aws_internet_gateway" "gw" {
-    vpc_id = aws_vpc.main.id
-    }
-    ```
-
-The next thing we are adding is the Internet Gateway which is used to communicate between our VPC and the internet. 
-
-    ```
-    # This is the routing table for the public subnet, this builds the objects and the routes are added to this table.
-    resource "aws_route_table" "public" {
-    vpc_id = aws_vpc.main.id
-    }
-    
-
-    # This is the route table for the public subnet, only a generic 0/0 route is needed.
-    resource "aws_route" "public" {
-    route_table_id         = aws_route_table.public.id
-    destination_cidr_block = "0.0.0.0/0"
-    gateway_id             = aws_internet_gateway.gw.id
-    }
-        
-    #This associates the route table to the subnet
-    resource "aws_route_table_association" "public" {
-    subnet_id      = aws_subnet.main.id
-    route_table_id = aws_route_table.public.id
-    }
-    ```
-
-Now we have a new set of items we need to add. These are the routing table elements to route to the internet. As we are adding all of these in. Do you see how we are dynamically associating items using terraforms' language?
-
-Notice for example here:
-
-    ```
-    subnet_id      = aws_subnet.main.id
-    route_table_id = aws_route_table.public.id
-    ```
-
-What this does is that this will associate a subnet that we created to the routing table we created. We do not need to worry about statically defining these values, nor do we want to. 
-
-**Step 2.** Next, let's plan and apply these changes, let's also use some new tools.
-
-    ```
-    tflint
-    ```
-
-    This is the terraform linter. The linter is going to throw out a warning:
-
-    ```
-    1 issue(s) found:
-
-    Warning: terraform "required_version" attribute is required (terraform_required_version)
-
-    on provider.tf line 2:
-    2: terraform {
-
-    Reference: https://github.com/terraform-linters/tflint-ruleset-terraform/blob/v0.8.0/docs/rules/terraform_required_version.md
-    ```
-
-This tells us that we have a rule violation. Let's fix that by opening up `provider.tf`. Make the file look like the following:
-
-    ```
-    # First, require the latest providers for terraform, specifically we are going use the AWS Provider, and a version of 5.0 or greater.
-    terraform {
-    required_providers {
-        aws = {
-        source  = "hashicorp/aws"
-        version = "~> 5.0"
-        }
-      }
-      required_version = "~> 1.9.0"
-    }
-
-    # Configure this provider to the region that you are assigned. By default we are going ot use us-east-1.
-    provider "aws" {
-    region = var.region
-    }
-    ```
-
-This now corrected the linter if you run `tflint` again it will not return an error. 
-
-    ```
-    terraform fmt
-    ```
-
-The terraform fmt command will make each terraform file come out in a pretty well-defined format. 
-
-    ```
-    terraform apply
-    ```
-
-Terraform apply will then run and provide us with a question, make sure you answer `yes` to run the entire job. 
-
-## Setting up EC2
-
-**Step 3.** We are now going to be putting an EC2 server in the environment, to do this we are going to need to first get an AMI in each datacenter. We will use an Ubuntu image for now to simplify things. Create the following file:
-
-    ```
-    nano data.tf
-    ```
-
-Insert the following lines:
-
-    ```
-    data "aws_ami" "ubuntu" {
-      most_recent = true
-
-      filter {
-        name   = "name"
-        values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
-      }
-
-      filter {
-        name   = "virtualization-type"
-        values = ["hvm"]
-      }
-
-    owners = ["099720109477"] # Canonical
-    }        
-    ```
-
-This will select the AWS AMI for the 22.04 release of Ubuntu.
-
-**Step 4.** Next you may be tempted to use a premade SSH Key, however we can use cloud-init scripts to build our machine. Let's create a templatefile that we will use to build our templates. 
-
-The first thing we want to do is setup an ssh-key
-
-    ```
-    ssh-keygen 
-    ```
-
-Create a Key in the default directory, if you wish to use a password that is up to you as this is a lab. Passwords are always recommended to protect your private key. 
-
-**Step 5.** We are now going to create a template for our first build. As this will be a simple bastion first, let's see how we can build it.
-
-    ```
-    nano ec2.tmpl
-    ```
-
-    ```
-    #cloud-config
-
-    package_update: true
-    package_upgrade: true
-    package_reboot_if_required: true
-
-    fqdn: ${hostname}
-
-    users:
-    %{ for user_key, user_value in users ~}
-      - name: ${user_key}
-        lock_passwd: true
-        shell: /bin/bash
-        ssh_authorized_keys:
-        - ${user_value}
-        sudo: ALL=(ALL) NOPASSWD:ALL
-    %{ endfor ~}
-
-    packages:
-      - apt-transport-https
-      - build-essential
-      - ca-certificates
-      - certbot
-      - curl
-      - gnupg
-      - gnupg-agent
-      - make
-      - software-properties-common
-      - sudo
-
-    power_state:
-      mode: reboot
-      delay: 1
-      message: Rebooting after installation
-    ```
-
-The above is a yaml file and these YAML files are SPACE sensitive. As such we have included a copy of it in the Lab2 folder. 
-
-**Step 6.** To use this, you will need to modify your vars.tf file to add a new map based attribute that will parse names and SSH Keys. 
-
-
-    ```
-    nano vars.tf
-    ```
-
-At the end of the file add the following:
-
-    ```
-    variable "operators" {
-      description = "This is a list that is fed to build local users in the VMs. This uses the username / ssh key pairing to fill out the cloud-init templates"
-      type        = map(any)
-      default = {
-        "operator" = "THIS IS YOUR SSH KEY"
-        }
-    }
-    ```
-
-Notice that in this string:
-
-    ```
-        "operator" = "THIS IS YOUR SSH KEY"
-    ```
-
-Your username will be "operator" and the string that says "THIS IS YOUR SSH KEY" should be filled int with your public key. For example:
-
-    ```
-    cat ~/.ssh/id_rsa.pub
-    ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCvbXx45/1SwFukLruG5Y6vsrWOaFtRTxUakd1HFxas4IGXXJCwoLtJqPPqrvAgPtSFG6Ad4NOdIiGaBV8fypLR+ECZqdmgr1/sp7iFGovVfV1S8eHNlHr6q/Aewo1uYNwJ2ERAqYn57U01C/G5hfyGVTMSaZZ0gQOFo/HYbA/1Yo8sFRNRctw2uArlf3P8v6RZ7Rf7oOK3MGOVwdbcMQna88r9ljM4tA0dAoXu8+wqGWfXkBkTeIOipz+vK5u/NwzJrb8bg6BjYZv41Ws6fXI1eVyxcwJAFrUv2xdMHHHwoGbNNKk9348hjF7aE/u491WCDDpudGUZkxng0JRwpVBL+A5Wb6r+ngb2v3PpjTjs/sg2HIIUB2c6i0iO44LgoavYgdXl4p5F7WQS69hZtmIYj2Q+UV0FLNSMNXh7GiG6pJAF9lcPArg7LbjQWSH1958CGJj3lCMsAjKFF5YqGH9AXAlu0z8L6KIwWmsI6VjWGTyCR2AeYKZ9miGiTnZv/hk= cloudshell-user@ip-10-130-82-117.ec2.internal
-    ```
-
-Then my operator still will look like:
-
-    ```
-    "operator" = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCvbXx45/1SwFukLruG5Y6vsrWOaFtRTxUakd1HFxas4IGXXJCwoLtJqPPqrvAgPtSFG6Ad4NOdIiGaBV8fypLR+ECZqdmgr1/sp7iFGovVfV1S8eHNlHr6q/Aewo1uYNwJ2ERAqYn57U01C/G5hfyGVTMSaZZ0gQOFo/HYbA/1Yo8sFRNRctw2uArlf3P8v6RZ7Rf7oOK3MGOVwdbcMQna88r9ljM4tA0dAoXu8+wqGWfXkBkTeIOipz+vK5u/NwzJrb8bg6BjYZv41Ws6fXI1eVyxcwJAFrUv2xdMHHHwoGbNNKk9348hjF7aE/u491WCDDpudGUZkxng0JRwpVBL+A5Wb6r+ngb2v3PpjTjs/sg2HIIUB2c6i0iO44LgoavYgdXl4p5F7WQS69hZtmIYj2Q+UV0FLNSMNXh7GiG6pJAF9lcPArg7LbjQWSH1958CGJj3lCMsAjKFF5YqGH9AXAlu0z8L6KIwWmsI6VjWGTyCR2AeYKZ9miGiTnZv/hk= cloudshell-user@ip-10-130-82-117.ec2.internal"
-    ```
-
-Save the vars.tf file.
-
-**Step 7.** We also need to make sure we have a security group that lets us in.
-
-    ```
-    nano sg.tf
-    ```
-
-Insert the following:
-
-    ```
-    # Security Groups
-    resource "aws_security_group" "main_sg" {
-    name        = "Private East Servers"
-    description = "Private East Servers"
-    vpc_id      = aws_vpc.main.id
-
-    ingress {
-      from_port   = 22
-      to_port     = 22
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-    }
-
-    ingress {
-      from_port   = 443
-      to_port     = 443
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-    }
-
-    egress {
-      from_port   = 0
-      to_port     = 0
-      protocol    = "-1"
-      cidr_blocks = ["0.0.0.0/0"]
-    }
+From the current directory it is two directories in. It has 3 files. 
+
+1. main.tf: This is the main module with all of the VPC items
+2. vars.tf: In this case, you need to provide the module with the variables in here, this is where to look
+3. output.tf: This is the output from the module that you can use in *OTHER* places
+
+Now let's see how to build this. 
+
+**Step 2**. Look at the following:
+
+  ```
+  cat ./modules/networking/vars.tf
+  ```
+
+You will notice **A LOT** of variables in the system, so let's build a vars.tf that will match these variables and allow us to use the variables.
+
+  ```
+  nano vars.tf
+  ```
+
+**Step 3.** Here is how we begin. Start by adding the following statement:
+
+  ```
+  module "vpc_network" {
+     source = "./modules/networking"
+  }
+
+This is a blank statement that tells terraform, we are going to use a module called "vpc_network" and we are going to find that module in this path. Now what we are going to need to do is within the {} start adding our variables. Let's use variables of our own. Make the file look like this:
+
+  ```
+  module "vpc_network" {
+    source = "../modules/networking"
+
+    vpc_block                       = var.cidr_block_east                 # This is the Supernet that contains all your subnet, default = "10.0.0.0/16"
+    vpcname                         = var.vpc_name                        # This is the name of the VPC
+    vpcdescription                  = var.vpc_description                 # This is a description tag for it
+    public_subnet                   = var.public_subnet                   # This is the public subnet range which the default = "10.0.0.0/24"
+    public_subnet_name              = var.public_subnet_name              # This is the public subnet name, default is "public-subnet"
+    public_subnet_description       = var.public_subnet_description       # This is the public subnet description, default is "public subnet"
+    region                          = var.region                          # This is the region, default is us-east-1, like the rest of the world.
+    private_subnet                  = var.private_subnet                  # This is the private subnet range, which the default is = "10.0.1.0/24"
+    private_subnet_name             = var.private_subnet_name             # This is the private subnet name, default is "private-subnet"
+    private_subnet_description      = var.private_subnet_description      # This is the private subnet description, the default is private subnet
+    public_route_table_name         = var.public_route_table_name         # This is the name of the Route Table, default is "public-route-table"
+    public_route_table_description  = var.public_route_table_description  # This is the description of the Route Table, default is "Public Route Table"
+    igw_name                        = var.igw_name                        # This is the name of the Internet Gateway, default is "internet-gateway"
+    igw_description                 = var.igw_description                 # This is the description of the Internet Gateway, default is "Internet Gateway"
+    natgw_name                      = var.natgw_name                      # This is the name of the Internet Gateway, default is "nat-gateway"
+    natgw_description               = var.natgw_description               #This is the description of the Internet Gateway, default is "NAT Gateway"
+    private_route_table_name        = var.private_route_table_name        # This is the name of the Route Table, default is "private-route-table"
+    private_route_table_description = var.private_route_table_description # This is the description of the Route Table, default is "Private Route Table"
+    create_nat_gateway              = var.create_nat_gateway              # This instructs the system to create a NAT gateway for private subnets
+    az                              = var.az                              # Availability zone such as "a" for each datacenter, default is "a"
+  }
+  ```
+
+  Copy and paste is probably your friend, but you can see what we have done here is added a bunch of variables that we will be using in our next step. Do you see this:
+
+  ```
+  vpc_block                       = var.cidr_block_east
+  ```
+
+  This is very useful as a module to allow us to take a a variable we define and inserting it in this VPC block. 
+
+
+**Step 4.**  Next, let's create a file called `vars.tf`
+
+  ```
+  nano vars.tf
+  ```
+
+Within vars.tf we will need to now insert a bunch of variables that we will use to configure each of the building blocks. Notice that I gave some of the names in this example the name of "east". What if we wanted to have one module reference the "East" (us-east-1) vs "West". We could do this in different statefiles or the same one and reference the modules to allow us modularity in our runs. 
+
+  ```
+  #The variable below allows you to chose an AWS DataCenter such as "us-east-1"
+  variable "region" {
+    type        = string
+    description = "Please what Datacenter you wish to use, such as us-east-1"
+  }
+
+  variable "cidr_block_east" {
+    type        = string
+    description = "Supernet Block for AWS"
+    default     = "10.0.0.0/16"
+  }
+
+  variable "vpc_name" {
+    type        = string
+    description = "VPC Name"
+    default     = "main-vpc"
+  }
+
+  variable "vpc_description" {
+    type        = string
+    description = "VPC Description"
+    default     = "Main VPC"
+  }
+
+  variable "public_subnet" {
+    type        = string
+    description = "Public Subnet"
+    default     = "10.0.0.0/24"
+  }
+
+  variable "public_subnet_name" {
+    type        = string
+    description = "Public Subnet Name"
+    default     = "public-subnet"
+  }
+
+  variable "public_subnet_description" {
+    type        = string
+    description = "Public Subnet Description"
+    default     = "Public Subnet"
+  }
+
+  variable "private_subnet" {
+    type        = string
+    description = "Public Subnet"
+    default     = "10.0.1.0/24"
+  }
+
+  variable "private_subnet_name" {
+    type        = string
+    description = "Private Subnet Name"
+    default     = "private-subnet"
+  }
+
+  variable "private_subnet_description" {
+    type        = string
+    description = "Public Subnet Description"
+    default     = "public-subnet"
+  }
+
+  variable "public_route_table_name" {
+    type        = string
+    description = "Public Route Table Name"
+    default     = "public-route-table"
+  }
+
+  variable "public_route_table_description" {
+    type        = string
+    description = "Public Route Table Description"
+    default     = "Public Route Table"
+  }
+
+  variable "igw_name" {
+    type        = string
+    description = "Internet Gateway Name"
+    default     = "internet-gateway"
+  }
+
+  variable "igw_description" {
+    type        = string
+    description = "Internet Gateway Description"
+    default     = "Internet Gateway"
+  }
+
+  variable "natgw_name" {
+    type        = string
+    description = "NAT Gateway Name"
+    default     = "nat-gateway"
+
+  }
+
+  variable "natgw_description" {
+    type        = string
+    description = "Internet Gateway Description"
+    default     = "Internet Gateway"
+  }
+
+  variable "private_route_table_name" {
+    type        = string
+    description = "private Route Table Name"
+    default     = "private-route-table"
+  }
+
+  variable "private_route_table_description" {
+    type        = string
+    description = "private Route Table Description"
+    default     = "Private Route Table"
+  }
+
+  variable "create_nat_gateway" {
+    type        = bool
+    description = "Create NAT Gateway"
+    default     = false
+  }
+
+  variable "az" {
+    type        = string
+    description = "What Availability Zone"
+    default     = "a"
+  }
+  ```
+
+**Step 6.** Now comes the moment of truth, will this terraform work?
+
+  ```
+  terraform init
+  ```
+
+  ```
+  terraform apply
+  ```
+
+Notice this error:
+
+  ```
+  Plan: 6 to add, 0 to change, 0 to destroy.
+  ╷
+  │ Error: Invalid index
+  │ 
+  │   on modules/networking/output.tf line 6, in output "private_route_table_id":
+  │    6:     value = aws_route_table.private[0].id
+  │     ├────────────────
+  │     │ aws_route_table.private is empty tuple
+  │ 
+  │ The given key does not identify an element in this collection value: the collection has no elements.
+  ╵
+  ╷
+  │ Error: Invalid index
+  │ 
+  │   on modules/networking/output.tf line 10, in output "private_subnet_id":
+  │   10:     value = aws_subnet.private_subnet[0].id
+  │     ├────────────────
+  │     │ aws_subnet.private_subnet is empty tuple
+  │ 
+  │ The given key does not identify an element in this collection value: the collection has no elements.
+  ╵
+  ```
+
+This was left here to explain count and different ways to build modules. One of the tricks we are using to build a module lies here:
+
+  ```
+  resource "aws_subnet" "private_subnet" {
+    count             = var.create_private_subnet ? 1 : 0
+    vpc_id            = aws_vpc.this.id
+    cidr_block        = var.private_subnet
+    availability_zone = "${var.region}${var.az}"
 
     tags = {
-      Name = "Public Allow"
-      }
+      Name        = var.private_subnet_name
+     Description = var.private_subnet_description
+   }
+  }
+  ```
+
+There is a line called 
+
+  ```
+  count             = var.create_private_subnet ? 1 : 0
+  ```
+  
+This is a bit of a trick to build the module. What this is a terraform conditional expression. It almost looks like a ternary operator in C++ and somewhat acts like one. But it's a bit different. What its saying is that it will set the count (number of devices) to 1 unless 0 is set. In this case its evaluating 1 and 0 as true and false. Well once we use the count in terraform we are forced to declare the index number of our count. Because we are using a single resource (either true or false), we will use the first index for each of the private subnets we are calling. For example
+
+  ```
+  create_private_subnet[0]
+  ```
+
+Ok so if we look at this statement:
+
+  ```
+  subnet_id      = aws_subnet.private_subnet[0].id
+  ```
+
+You can see that every time we reference aws_subnet.private_subnet it is using [0] for the first one. And we can then later use this pattern to define 1..N (many) number of servers or resources. But for now. Let's concentrate on our problem fixing:
+
+  ```
+  on modules/networking/output.tf line 6, in output "private_route_table_id":
+  │    6:     value = aws_route_table.private[0].id
+  │     ├────────────────
+  │     │ aws_route_table.private is empty tuple
+  ```
+
+To fix this we need to look at what is happening. We are *NOT* building a private subnet or have a private routing table, so when the output tries to run on *optional* values it fails. How can we satisfy this? Well we can use this pattern:
+
+  ```
+  try(aws_route_table.private[0].id, null)
+  ```
+
+**Step 7.** So the solution here is to perform the following task
+
+  ```
+  nano ./modules/networking/output.tf
+  ```
+
+  Look for the following lines:
+
+  ```
+  output "private_route_table_id" {
+    value = aws_route_table.private[0].id
+  }
+
+  output "private_subnet_id" {
+    value = aws_subnet.private_subnet[0].id
+  }
+  ```
+
+Make them look like:
+
+  ```
+  output "private_route_table_id" {
+    value = try(aws_route_table.private[0].id, null)
+  }
+
+  output "private_subnet_id" {
+    value = try(aws_subnet.private_subnet[0].id , null)
+  }
+
+  ```
+
+**Step 7.** Now how can modularize EC2 Servers? Well let's look at how those EC2 servers will work. The first one that we are going to use is the C2 Server (which is the sliver server). Let's create a module starting the wording of "sliver"
+
+  ```
+  nano ec2.tf
+  ```
+
+  Let's review what we will need for the module.
+
+1. Subnet ID: This comes from the VPC run, how do we call it? We can use the following nomenclature: `module.vpc_network.public_subnet_id`. Now why is thiss? Becuase we are using our sliver_c2 module and it has an output variable defined to emit the public_subnet_id. 
+2. Then IP Address of the Sliver Server as well as the NIC Name
+3. We want to provide an assessment name
+4. We want to provide a server name
+5. We don't care about destroying the server so the lifetime of the server will be set to false, we can destroy it with terraform.
+6. We want a list of internal users as a map, will discuss this in a minute
+7. We want User Data
+8. We want a custom set of commands to run, such as setting the hostname or setting the sliver commands. 
+
+  ```
+  module "sliver_c2" {
+    source = "./modules/servers"
+
+    subnet_id              = module.vpc_network.public_subnet_id
+    network_interface_ip   = var.sliver_c2_ip
+    network_interface_name = var.sliver_c2_nic_name
+    security_group_id      = aws_security_group.main_sg.id
+    ami_id                 = data.aws_ami.ubuntu.id
+    operators              = var.operators
+    instance_type          = "t3.small"
+    root_block_size        = 100
+    server_name            = "SLIVER-C2"
+    prevent_destroy        = false
+    user_data              = true
+    assessment             = "RedTeamVillage"
+    commands               = var.sliver_commands
+  }
+  ```
+
+This will build our module more or less, we have intermixed variables and names just to show you that it can be either or, depending on abstraction and preference.
+
+Next let's APPEND to our vars.tf
+
+  ```
+  variable "sliver_c2_ip" {
+    default = "10.0.0.20"
+  }
+  ```
+
+  ```
+  variable "sliver_c2_nic_name" {
+    default = "SLIVER-C2-NIC0"
+  }
+  ```
+
+  ```
+  variable "operators" {
+    type = map(any)
+    default = {
+      "operator" = "SSH-Key Here!",
+      "operator2" = "Same SSH-Key!"
     }
-    ```
+  }
+  ```
 
-**Step 8.** Now that all of this is done, we can move on to building our Machine. This would be a way of doing it.
-
-    ```
-    nano ec2.tf
-    ```
-
-Insert the following
-
-    ```
-    # Ubuntu Default
-    resource "local_file" "cloud_init_ubuntu" {
-      content = templatefile("${path.module}/ec2.tmpl", {
-        hostname = "bastion",
-        users    = var.operators
-      })
-      filename = "./ec2.yaml"
+  ```
+  variable "sliver_commands" {
+    type = map(any)
+      default = {
+        command_one   = "curl https://sliver.sh/install|sudo bash",
+        command_two   = "systemctl daemon-reload",
+        command_three = "systemctl enable sliver"
     }
+  }
+  ```
 
-    data "local_file" "cloud_init_ubuntu" {
-      filename = local_file.cloud_init_ubuntu.filename
-      depends_on = [
-        local_file.cloud_init_ubuntu
-      ]
+Now we can chose to build ANOTHER server if we wish. Because we have modularzied this we can rebuild our SSH Bastion as an example, but instead I wanted to show you how to build an NGINX server with a custom set of variables.
+
+  ```
+  nano ec2.tf
+  ```
+
+Let's APPEND the following
+
+  ```
+  module "bastion" {
+    source = "./modules/servers"
+
+    subnet_id              = module.vpc_network.public_subnet_id
+    network_interface_ip   = var.bastion_ip
+    network_interface_name = var.bastion_nic_name
+    security_group_id      = aws_security_group.main_sg.id
+    ami_id                 = data.aws_ami.ubuntu.id
+    operators              = var.operators
+    instance_type          = "t3.small"
+    root_block_size        = 100
+    server_name            = "SSH-HOST"
+    prevent_destroy        = false
+    user_data              = true
+    assessment             = "RedTeamVillage"
+    commands               = var.bastion_commands
+  }
+  ```
+
+To the vars.tf file we will also need to append a few other commands:
+
+  ```
+  variable "bastion_ip" {
+    default = "10.0.0.20"
+  }
+  ```
+
+  ```
+  variable "bastion_nic_name" {
+    default = "BASTION-NIC0"
+  }
+  ```
+
+  ```
+  variable "operators" {
+    type = map(any)
+    default = {
+      "operator" = "SSH-Key Here!",
+      "operator2" = "Same SSH-Key!"
     }
+  }
+  ```
 
-    resource "aws_instance" "bastion" {
-      ami               = data.aws_ami.ubuntu.id
-      instance_type     = "t3.small"
-      subnet_id         = aws_subnet.main.id # This is the aws subnet ID for the public subnet, meant to be a DMZ this is how a "Public IP" is attached to an instance.
-      source_dest_check = false
-
-      vpc_security_group_ids = [
-        aws_security_group.main_sg.id # Default security group
-      ]
-
-      user_data = data.local_file.cloud_init_ubuntu.content
-
-      metadata_options {
-        http_endpoint               = "enabled"
-        http_put_response_hop_limit = "1"
-        http_tokens                 = "required"
-      }
-
-      tags = {
-        Name        = "Bastion Host"
-      }
-
-      lifecycle {
-        #ignore_changes = [
-        #  ami,       # Do not remove this, any changes to the Ubuntu AMI will cause this repo to redeploy the machine
-        #  user_data, # Do not remove this, any changes to the User Data will cause this machine to be rebuilt!
-        #]
-        #prevent_destroy = true
-      }
+  ```
+  variable "bastion_commands" {
+    type = map(any)
+      default = {
+        command_one   = "hostnamectl set-hostname bastion"
     }
-    ```
+  }
+  ```
 
 **Step 9.** Now we need to run a few commands to clean things up and initialize the template module that we have just added.
 
@@ -400,23 +497,18 @@ Insert the following
     terraform apply
     ```
 
-**Step 10.** Did you notice that you really don't have any connectivity information? Let's create an output file to help us out. Outputs can be whatever we want.
+You have no built modularized servers with a modularized network. You can see the power in the language is you wish to continue to use it. We use this for all of our terraform runs and we can easily build and destroy systems. This includes:
 
-    ```
-    nano output.tf
-    ```
+- Storing configurations in S3
+- Building out Cobalt Strike
+- Setting up Gophish and Evilginx
 
-Insert the following text:
+Before you are done please run:
 
-    ```
-    output "final_text" {
-      value = <<EOF
-    -------------------------------------------------------------------------------
-    Bastion Private IP:            ${try(aws_instance.bastion.private_ip, null)}
-    Bastion Public IP:             ${try(aws_instance.bastion.public_ip, null)}
-    -------------------------------------------------------------------------------
-    EOF
-    }
-    ```
+  ```
+  terraform destroy -auto-approve
+  ```
 
-Rerun the terraform apply.
+
+Thank you!
+

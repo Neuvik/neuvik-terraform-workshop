@@ -28,6 +28,11 @@ packages:
   - software-properties-common
   - sudo
 
+runcmd:
+%{ for command_key, command_value in commands ~}
+  - ${command_value}
+%{ endfor ~}
+
 power_state:
   mode: reboot
   delay: 1
