@@ -1,5 +1,5 @@
 module "vpc_network" {
-  source = "../modules/networking"
+  source = "./modules/networking"
 
   vpc_block                       = var.cidr_block_east                 # This is the Supernet that contains all your subnet, default = "10.0.0.0/16"
   vpcname                         = var.vpc_name                        # This is the name of the VPC
