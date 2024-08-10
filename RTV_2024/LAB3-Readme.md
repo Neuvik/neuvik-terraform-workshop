@@ -16,9 +16,11 @@ Let's start like we did before but now we are going to have a VPC module for net
 
 **Step 1.** Let's next move into building a few systems, to do this we will need at a minimum a VPC. 
 
-    ```
-    cd ../Lab3
-    ```
+
+  ```
+  cd ../Lab3
+  ```
+
 
 Now, let's try and unwind what is needed for a module we have to look at what the module expects. This can be a bit difficult if we have not defined the variables needed for our module to build. Now let's start with the first question. WHY? Why are we doing a module? Well let's consider the following scenario:
 
@@ -28,9 +30,9 @@ Now, let's try and unwind what is needed for a module we have to look at what th
 
 To do this, you will need to best understand the way the module is structured. In many cases, modules are documented but in our case, it is not. Do you give up? No. Let's start with the VPC Module. This one is located here:
 
-    ```
-    cd ./modules/networking/
-    ```
+  ```
+  cd ./modules/networking/
+  ```
 
 From the current directory it is two directories in. It has 3 files. 
 
@@ -58,7 +60,8 @@ You will notice **A LOT** of variables in the system, so let's build a vars.tf t
   module "vpc_network" {
      source = "./modules/networking"
   }
-
+  ```
+  
 This is a blank statement that tells terraform, we are going to use a module called "vpc_network" and we are going to find that module in this path. Now what we are going to need to do is within the {} start adding our variables. Let's use variables of our own. Make the file look like this:
 
   ```
