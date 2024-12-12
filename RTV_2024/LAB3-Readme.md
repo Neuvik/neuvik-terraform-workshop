@@ -484,21 +484,21 @@ To the vars.tf file we will also need to append a few other commands:
 
 **Step 9.** Now we need to run a few commands to clean things up and initialize the template module that we have just added.
 
-    ```
-    terraform init
-    ```
+  ```
+  terraform init
+  ```
 
-    ```
-    terraform fmt
-    ```
+  ```
+  terraform fmt
+  ```
 
-    ```
-    terraform validate
-    ```
+  ```
+  terraform validate
+  ```
 
-    ```
-    terraform apply
-    ```
+  ```
+  terraform apply
+  ```
 
 You have no built modularized servers with a modularized network. You can see the power in the language is you wish to continue to use it. We use this for all of our terraform runs and we can easily build and destroy systems. This includes:
 
