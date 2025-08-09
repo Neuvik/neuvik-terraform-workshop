@@ -1,0 +1,34 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+fqdn: ${hostname}
+
+users:
+%{ for user_key, user_value in users ~}
+  - name: ${user_key}
+    lock_passwd: true
+    shell: /bin/bash
+    ssh_authorized_keys:
+    - ${user_value}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+%{ endfor ~}
+
+packages:
+  - apt-transport-https
+  - build-essential
+  - ca-certificates
+  - certbot
+  - curl
+  - gnupg
+  - gnupg-agent
+  - make
+  - software-properties-common
+  - sudo
+
+power_state:
+  mode: reboot
+  delay: 1
+  message: Rebooting after installation
