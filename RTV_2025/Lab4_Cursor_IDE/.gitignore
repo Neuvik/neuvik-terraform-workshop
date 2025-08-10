@@ -1,0 +1,44 @@
+# =============================================================================
+# GITIGNORE FOR LAB 4
+# =============================================================================
+# This file excludes sensitive and temporary files from version control
+
+# SSH Private Keys (NEVER commit these!)
+lab4-key
+*.pem
+*.key
+
+# Terraform files
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# Terraform plan files
+*.plan
+*.tfplan
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+

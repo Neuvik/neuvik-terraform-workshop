@@ -1,3 +1,18 @@
+resource "local_file" "cloud_init_ubuntu" {
+  content = templatefile("${path.module}/ec2.tmpl", {
+    hostname = "bastion",
+    users    = var.operators
+  })
+  filename = "./ec2.yaml"
+}
+
+data "local_file" "cloud_init_ubuntu" {
+  filename = local_file.cloud_init_ubuntu.filename
+  depends_on = [
+    local_file.cloud_init_ubuntu
+  ]
+}
+
 resource "aws_instance" "bastion" {
   ami               = data.aws_ami.ubuntu.id
   instance_type     = "t3.small"
@@ -17,7 +32,7 @@ resource "aws_instance" "bastion" {
   }
 
   tags = {
-    Name        = "Bastion Host"
+    Name = "Bastion Host"
   }
 
   lifecycle {
