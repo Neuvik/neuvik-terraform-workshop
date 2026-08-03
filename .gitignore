@@ -37,3 +37,6 @@ Workshop
 
 .infracost
 .infracost/*
+
+# macOS
+.DS_Store
